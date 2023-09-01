@@ -1,4 +1,4 @@
-name: Deploy to GitHub Pages
+name: Build & Deploy to Nomad 
 
 on:
   push:
@@ -17,45 +17,35 @@ concurrency:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: 
+      - 'self-hosted' 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
 
-      - name: Set up Node
-        uses: actions/setup-node@v3
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: 'Build gitprofile'
+        uses: docker/build-push-action@v3
         with:
-          node-version: 16.x
-          cache: 'npm'
+          context: .
+          push: true 
+          tags: ghcr.io/ebarriosjr/gitprofile:v0.0.1
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
-      - name: Setup Pages
-        uses: actions/configure-pages@v3
+      - name: 'Install nomad'
+        run: |
+          apt-get update
+          apt-get install -y wget gpg coreutils
+          wget -O- https://apt.releases.hashicorp.com/gpg | sudo gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
+          echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" | tee /etc/apt/sources.list.d/hashicorp.list
+          sudo apt-get update && sudo apt-get install -y nomad 
 
-      - name: Restore cache
-        uses: actions/cache@v3
-        with:
-          path: |
-            **/node_modules
-          key: ${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Build with vite
-        run: npm run build
-
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v1
-        with:
-          path: ./dist
-
-  deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    runs-on: ubuntu-latest
-    needs: build
-    steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v1.2.4
+      - name: 'Deploy'
+        uses: 'ebarriosjr/nomad-deploy-action@v1'
+        env:
+          NOMAD_ADDR: http://192.168.1.162
+          NOMAD_PORT: 4646
+          NOMAD_JOB: 'gitprofile.hcl'
